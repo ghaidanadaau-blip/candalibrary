@@ -1,0 +1,851 @@
+<?php
+require_once '../config/koneksi.php';
+require_once '../includes/cek_login.php';
+
+// Helper aman mengambil angka tunggal dari query
+function ambil_angka($conn, $sql) {
+    $q = mysqli_query($conn, $sql);
+    if ($q && $row = mysqli_fetch_row($q)) {
+        return (int)$row[0];
+    }
+    return 0;
+}
+
+// Ambil data statistik utama (Control panel - tetap sama)
+$q_anggota = mysqli_query($conn, "SELECT COUNT(*) AS total FROM anggota");
+$jml_anggota = $q_anggota ? mysqli_fetch_assoc($q_anggota)['total'] : 0;
+
+$q_koleksi = mysqli_query($conn, "SELECT COUNT(*) AS total FROM buku");
+$jml_koleksi = $q_koleksi ? mysqli_fetch_assoc($q_koleksi)['total'] : 0;
+
+$q_pinjam = mysqli_query($conn, "SELECT COUNT(*) AS total FROM sirkulasi WHERE status='Dipinjam'");
+$jml_pinjam = $q_pinjam ? mysqli_fetch_assoc($q_pinjam)['total'] : 0;
+
+$q_kembali = mysqli_query($conn, "SELECT COUNT(*) AS total FROM sirkulasi WHERE status='Dikembalikan'");
+$jml_kembali = $q_kembali ? mysqli_fetch_assoc($q_kembali)['total'] : 0;
+
+// Data Statistik Tambahan (untuk Grafik & Diagram)
+// 1. Statistik Data Peminjaman (Keseluruhan)
+$pinjam_total_judul     = ambil_angka($conn, "SELECT COUNT(DISTINCT id_buku) FROM sirkulasi");
+$pinjam_total_eksemplar = ambil_angka($conn, "SELECT COUNT(*) FROM sirkulasi");
+$pinjam_total_anggota   = ambil_angka($conn, "SELECT COUNT(DISTINCT id_anggota) FROM sirkulasi");
+
+// 2. Koleksi Sedang Dipinjam
+$sedang_judul     = ambil_angka($conn, "SELECT COUNT(DISTINCT id_buku) FROM sirkulasi WHERE status='Dipinjam'");
+$sedang_eksemplar = ambil_angka($conn, "SELECT COUNT(*) FROM sirkulasi WHERE status='Dipinjam'");
+$sedang_anggota   = ambil_angka($conn, "SELECT COUNT(DISTINCT id_anggota) FROM sirkulasi WHERE status='Dipinjam'");
+
+// 3. Koleksi Telah Dikembalikan
+$kembali_judul     = ambil_angka($conn, "SELECT COUNT(DISTINCT id_buku) FROM sirkulasi WHERE status='Dikembalikan'");
+$kembali_eksemplar = ambil_angka($conn, "SELECT COUNT(*) FROM sirkulasi WHERE status='Dikembalikan'");
+$kembali_anggota   = ambil_angka($conn, "SELECT COUNT(DISTINCT id_anggota) FROM sirkulasi WHERE status='Dikembalikan'");
+
+$q_terbaru = mysqli_query($conn, "SELECT s.*, a.nama_anggota, a.kode_anggota, b.judul, b.nomor_barcode 
+                                FROM sirkulasi s 
+                                JOIN anggota a ON s.id_anggota = a.id_anggota 
+                                JOIN buku b ON s.id_buku = b.id_buku 
+                                ORDER BY s.id_transaksi DESC LIMIT 5");
+
+// Nama instansi dari konfigurasi
+$nama_perpus = isset($pengaturan['nama_perpustakaan']) ? $pengaturan['nama_perpustakaan'] : 'CANDA Library';
+?>
+<!DOCTYPE html>
+<html lang="id" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Admin - <?= htmlspecialchars($nama_perpus) ?></title>
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css" rel="stylesheet">
+    <style>
+        :root {
+            /* Palet Warna Utama */
+            --pistachio: #DCE8B8;
+            --grass: #5E8A17;
+            --grass-dark: #466810;
+            --raspberry: #D94D86;
+            --raspberry-dark: #B5376B;
+            --bubblegum: #F3A2C4;
+            --ivory: #F6F0E8;
+
+            /* Light Mode Tokens */
+            --bg-body: #F6F0E8;
+            --bg-surface: #FFFFFF;
+            --bg-surface-soft: #FAF7F2;
+            --text-main: #23281E;
+            --text-muted: #646B5E;
+            --border-color: #E5DEC9;
+
+            --sidebar-bg: #232D1B;
+            --sidebar-header-bg: #1B2314;
+            --sidebar-link: #DCE8B8;
+            --sidebar-hover-bg: rgba(243, 162, 196, 0.14);
+            --sidebar-active-border: #F3A2C4;
+
+            --table-head-bg: #DCE8B8;
+            --table-head-text: #23281E;
+            --table-hover: #F6F0E8;
+            --shadow-card: 0 4px 16px rgba(35, 45, 27, 0.06);
+        }
+
+        html[data-theme="dark"] {
+            /* Dark Mode Tokens */
+            --bg-body: #141812;
+            --bg-surface: #1D231A;
+            --bg-surface-soft: #252C22;
+            --text-main: #F6F0E8;
+            --text-muted: #B6BEA9;
+            --border-color: #323B2D;
+
+            --sidebar-bg: #11150F;
+            --sidebar-header-bg: #0C0F0B;
+            --sidebar-link: #DCE8B8;
+            --sidebar-hover-bg: rgba(217, 77, 134, 0.18);
+            --sidebar-active-border: #D94D86;
+
+            --table-head-bg: #293324;
+            --table-head-text: #DCE8B8;
+            --table-hover: rgba(243, 162, 196, 0.08);
+            --shadow-card: 0 4px 18px rgba(0, 0, 0, 0.35);
+        }
+
+        body {
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            overflow-x: hidden;
+            transition: background-color 0.25s ease, color 0.25s ease;
+        }
+
+        /* Layout Sidebar Kiri */
+        .wrapper {
+            display: flex;
+            width: 100%;
+            align-items: stretch;
+        }
+
+        #sidebar {
+            min-width: 260px;
+            max-width: 260px;
+            background: var(--sidebar-bg);
+            color: var(--text-main);
+            transition: all 0.25s ease;
+            min-height: 100vh;
+            border-right: 1px solid var(--border-color);
+        }
+
+        #sidebar .sidebar-header {
+            padding: 20px;
+            background: var(--sidebar-header-bg);
+            font-size: 1.1rem;
+            font-weight: bold;
+            border-bottom: 1px solid rgba(220, 232, 184, 0.15);
+            color: #F6F0E8;
+        }
+
+        #sidebar ul.components {
+            padding: 15px 0;
+        }
+
+        #sidebar ul li a {
+            padding: 12px 20px;
+            font-size: 0.95rem;
+            display: flex;
+            align-items: center;
+            color: var(--sidebar-link);
+            text-decoration: none;
+            transition: 0.2s ease;
+        }
+
+        #sidebar ul li a:hover,
+        #sidebar ul li.active > a {
+            color: #FFFFFF;
+            background: var(--sidebar-hover-bg);
+            border-left: 4px solid var(--sidebar-active-border);
+        }
+
+        #sidebar ul li a i {
+            margin-right: 10px;
+            font-size: 1.1rem;
+            color: var(--bubblegum);
+        }
+
+        /* Konten Utama */
+        #content {
+            width: 100%;
+            padding: 20px;
+            min-height: 100vh;
+        }
+
+        /* Navbar & Card */
+        .themed-navbar,
+        .card {
+            background-color: var(--bg-surface) !important;
+            color: var(--text-main) !important;
+            border: 1px solid var(--border-color) !important;
+            box-shadow: var(--shadow-card) !important;
+            transition: background-color 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+        }
+
+        .card-header {
+            background-color: var(--bg-surface-soft) !important;
+            color: var(--text-main) !important;
+            border-bottom: 1px solid var(--border-color) !important;
+        }
+
+        .text-muted {
+            color: var(--text-muted) !important;
+        }
+
+        /* Small Box Statistik */
+        .small-box {
+            border-radius: 12px;
+            position: relative;
+            display: block;
+            margin-bottom: 20px;
+            box-shadow: var(--shadow-card);
+            overflow: hidden;
+            transition: transform 0.2s ease;
+        }
+
+        .small-box:hover {
+            transform: translateY(-3px);
+        }
+
+        .small-box .inner {
+            padding: 20px;
+        }
+
+        .small-box .icon {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+            font-size: 60px;
+            opacity: 0.2;
+            transition: all 0.3s linear;
+        }
+
+        .small-box:hover .icon {
+            font-size: 68px;
+        }
+
+        .small-box-footer {
+            position: relative;
+            text-align: center;
+            padding: 7px 0;
+            display: block;
+            z-index: 10;
+            background: rgba(0, 0, 0, 0.14);
+            text-decoration: none;
+            font-size: 0.85rem;
+            font-weight: 600;
+            color: inherit;
+        }
+
+        .small-box-footer:hover {
+            background: rgba(0, 0, 0, 0.24);
+            color: inherit;
+        }
+
+        /* 4 Variasi Kotak Statistik Berdasarkan Palet */
+        .box-grass {
+            background: linear-gradient(135deg, var(--grass) 0%, var(--grass-dark) 100%);
+            color: #F6F0E8;
+        }
+
+        .box-raspberry {
+            background: linear-gradient(135deg, var(--raspberry) 0%, var(--raspberry-dark) 100%);
+            color: #FFFFFF;
+        }
+
+        .box-bubblegum {
+            background: linear-gradient(135deg, var(--bubblegum) 0%, #e07ea9 100%);
+            color: #23281E;
+        }
+
+        .box-pistachio {
+            background: linear-gradient(135deg, var(--pistachio) 0%, #c1d48c 100%);
+            color: #23281E;
+        }
+
+        /* Kartu Grafik Statistik Sirkulasi */
+        .chart-stat-card {
+            border-radius: 14px;
+            overflow: hidden;
+        }
+
+        .chart-canvas-wrap {
+            position: relative;
+            height: 210px;
+            width: 100%;
+        }
+
+        .stat-pill-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 14px;
+            padding-top: 12px;
+            border-top: 1px dashed var(--border-color);
+        }
+
+        .stat-pill-item {
+            flex: 1;
+            background-color: var(--bg-surface-soft);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 8px 6px;
+            text-align: center;
+        }
+
+        .stat-pill-item .pill-dot {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 4px;
+        }
+
+        .stat-pill-item .pill-val {
+            font-size: 1.15rem;
+            font-weight: 700;
+            line-height: 1.2;
+            color: var(--text-main);
+        }
+
+        .stat-pill-item .pill-lbl {
+            font-size: 0.75rem;
+            color: var(--text-muted);
+            font-weight: 600;
+        }
+
+        /* Tombol Pintasan Kustom */
+        .btn-grass {
+            background-color: var(--grass);
+            border-color: var(--grass);
+            color: #FFFFFF;
+        }
+        .btn-grass:hover {
+            background-color: var(--grass-dark);
+            border-color: var(--grass-dark);
+            color: #FFFFFF;
+        }
+
+        .btn-raspberry {
+            background-color: var(--raspberry);
+            border-color: var(--raspberry);
+            color: #FFFFFF;
+        }
+        .btn-raspberry:hover {
+            background-color: var(--raspberry-dark);
+            border-color: var(--raspberry-dark);
+            color: #FFFFFF;
+        }
+
+        .btn-bubblegum {
+            background-color: var(--bubblegum);
+            border-color: var(--bubblegum);
+            color: #23281E;
+            font-weight: 600;
+        }
+        .btn-bubblegum:hover {
+            background-color: #e489b0;
+            border-color: #e489b0;
+            color: #23281E;
+        }
+
+        .btn-theme-toggle {
+            border-radius: 999px;
+            border: 1px solid var(--border-color);
+            background-color: var(--bg-surface-soft);
+            color: var(--text-main);
+            font-weight: 600;
+        }
+
+        .btn-theme-toggle:hover {
+            background-color: var(--pistachio);
+            color: #23281E;
+        }
+
+        /* Tabel */
+		.table-terbaru thead th {
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+
+        .table-terbaru tbody td {
+            vertical-align: middle;
+        }
+
+        .table-terbaru .col-nowrap {
+            white-space: nowrap;
+        }
+
+        .table-terbaru .col-koleksi {
+            min-width: 190px;
+        }
+        .table {
+            color: var(--text-main);
+            border-color: var(--border-color);
+        }
+
+        .table thead th {
+            background-color: var(--table-head-bg);
+            color: var(--table-head-text);
+            border-color: var(--border-color);
+        }
+
+        .table tbody tr:hover {
+            background-color: var(--table-hover);
+        }
+
+        .breadcrumb a {
+            color: var(--raspberry);
+            text-decoration: none;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+<div class="wrapper">
+    <!-- SIDEBAR DI SISI KIRI -->
+    <nav id="sidebar">
+<div class="sidebar-header d-flex align-items-center gap-2">
+            <img src="../uploads/lampiran/logo.png" alt="Logo <?= htmlspecialchars($nama_perpus) ?>" style="height: 36px; width: auto; object-fit: contain; border-radius: 6px;">
+            <span class="text-truncate text-uppercase"><?= htmlspecialchars($nama_perpus) ?></span>
+        </div>
+        <div class="px-3 py-2 small border-bottom" style="color: var(--pistachio); border-color: rgba(220,232,184,0.15) !important;">
+            MENU UTAMA ADMIN
+        </div>
+        <ul class="list-unstyled components">
+            <li class="active">
+                <a href="dashboard.php"><i class="bi bi-speedometer2"></i> Dashboard</a>
+            </li>
+            <li>
+                <a href="../bibliografi/tampil.php"><i class="bi bi-journal-bookmark"></i> Katalog Koleksi Buku</a>
+            </li>
+            <li>
+                <a href="../anggota/tampil.php"><i class="bi bi-people"></i> Keanggotaan</a>
+            </li>
+            <li>
+                <a href="../sirkulasi/tampil.php"><i class="bi bi-arrow-left-right"></i> Sirkulasi Peminjaman</a>
+            </li>
+            <li>
+                <a href="../sirkulasi/riwayat_kembali.php"><i class="bi bi-journal-check"></i> Riwayat Pengembalian</a>
+            </li>
+            <li class="mt-4 border-top pt-2" style="border-color: rgba(220,232,184,0.15) !important;">
+                <a href="../index.php" target="_blank"><i class="bi bi-globe"></i> Lihat OPAC Publik</a>
+            </li>
+            <li>
+                <a href="../auth/logout.php" style="color: var(--bubblegum);"><i class="bi bi-box-arrow-right"></i> Keluar Sistem</a>
+            </li>
+        </ul>
+    </nav>
+
+    <!-- KONTEN UTAMA -->
+    <div id="content">
+        <!-- TOP NAVBAR / HEADER ATAS -->
+        <nav class="navbar navbar-expand themed-navbar px-3 py-2 rounded mb-4">
+            <div class="container-fluid">
+                <span class="navbar-brand mb-0 h6 fw-semibold" style="color: var(--text-main);">Panel Kontrol Administrator</span>
+                <div class="ms-auto d-flex align-items-center gap-2 gap-sm-3">
+                    <button type="button" id="themeToggle" class="btn btn-theme-toggle btn-sm px-3" title="Ganti Light / Dark Mode">
+                        <i class="bi bi-moon-stars-fill me-1" id="themeIcon"></i>
+                        <span id="themeLabel">Dark Mode</span>
+                    </button>
+                    <span class="small fw-bold d-none d-md-inline">
+                        <i class="bi bi-shield-lock-fill me-1" style="color: var(--raspberry);"></i>
+                        <?= isset($_SESSION['nama_petugas']) ? htmlspecialchars($_SESSION['nama_petugas']) : 'Administrator' ?>
+                    </span>
+                    <a href="../auth/logout.php" class="btn btn-raspberry btn-sm" title="Keluar">
+                        <i class="bi bi-power"></i>
+                    </a>
+                </div>
+            </div>
+        </nav>
+
+        <!-- BREADCRUMB & JUDUL -->
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h4 class="fw-bold mb-0">Dashboard <small class="text-muted fs-6 fw-normal">Control panel</small></h4>
+            <nav aria-label="breadcrumb">
+                <ol class="breadcrumb mb-0 small">
+                    <li class="breadcrumb-item"><a href="dashboard.php">Home</a></li>
+                    <li class="breadcrumb-item active text-muted">Dashboard</li>
+                </ol>
+            </nav>
+        </div>
+
+        <!-- 4 KOTAK STATISTIK (CONTROL PANEL - TETAP SEPERTI SEMULA) -->
+        <div class="row g-3 mb-4">
+            <div class="col-sm-6 col-xl-3">
+                <div class="small-box box-grass">
+                    <div class="inner">
+                        <h2 class="fw-bold mb-1"><?= $jml_anggota ?></h2>
+                        <p class="mb-0">Keanggotaan</p>
+                    </div>
+                    <div class="icon"><i class="bi bi-people-fill"></i></div>
+                    <a href="../anggota/tampil.php" class="small-box-footer">More info <i class="bi bi-arrow-right-circle-fill"></i></a>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="small-box box-raspberry">
+                    <div class="inner">
+                        <h2 class="fw-bold mb-1"><?= $jml_koleksi ?></h2>
+                        <p class="mb-0">Koleksi (OPAC)</p>
+                    </div>
+                    <div class="icon"><i class="bi bi-book-fill"></i></div>
+                    <a href="../bibliografi/tampil.php" class="small-box-footer">More info <i class="bi bi-arrow-right-circle-fill"></i></a>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="small-box box-bubblegum">
+                    <div class="inner">
+                        <h2 class="fw-bold mb-1"><?= $jml_pinjam ?></h2>
+                        <p class="mb-0">Peminjaman</p>
+                    </div>
+                    <div class="icon"><i class="bi bi-journal-arrow-up"></i></div>
+                    <a href="../sirkulasi/tampil.php" class="small-box-footer">More info <i class="bi bi-arrow-right-circle-fill"></i></a>
+                </div>
+            </div>
+            <div class="col-sm-6 col-xl-3">
+                <div class="small-box box-pistachio">
+                    <div class="inner">
+                        <h2 class="fw-bold mb-1"><?= $jml_kembali ?></h2>
+                        <p class="mb-0">Pengembalian</p>
+                    </div>
+                    <div class="icon"><i class="bi bi-journal-check"></i></div>
+                    <a href="../sirkulasi/riwayat_kembali.php" class="small-box-footer">More info <i class="bi bi-arrow-right-circle-fill"></i></a>
+                </div>
+            </div>
+        </div>
+
+        <!-- GRAFIK & DIAGRAM STATISTIK SIRKULASI -->
+        <div class="row g-3 mb-4">
+            <!-- 1. Statistik Data Peminjaman (Polar Area Chart) -->
+            <div class="col-lg-4">
+                <div class="card chart-stat-card h-100">
+                    <div class="card-header fw-bold py-3 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-pie-chart-fill me-2" style="color: var(--raspberry);"></i>Statistik Data Peminjaman</span>
+                        <span class="badge rounded-pill" style="background-color: var(--pistachio); color: #23281E;">Total</span>
+                    </div>
+                    <div class="card-body d-flex flex-column justify-content-between">
+                        <div class="chart-canvas-wrap">
+                            <canvas id="chartTotalPeminjaman"></canvas>
+                        </div>
+                        <div class="stat-pill-row">
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $pinjam_total_judul ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#D94D86;"></span>Judul</div>
+                            </div>
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $pinjam_total_eksemplar ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#F3A2C4;"></span>Eksemplar</div>
+                            </div>
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $pinjam_total_anggota ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#5E8A17;"></span>Anggota</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 2. Koleksi Sedang Dipinjam (Semi-Donut Gauge Chart) -->
+            <div class="col-lg-4">
+                <div class="card chart-stat-card h-100">
+                    <div class="card-header fw-bold py-3 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-speedometer me-2" style="color: var(--raspberry);"></i>Koleksi Dipinjam</span>
+                        <span class="badge rounded-pill" style="background-color: var(--bubblegum); color: #23281E;">Aktif</span>
+                    </div>
+                    <div class="card-body d-flex flex-column justify-content-between">
+                        <div class="chart-canvas-wrap">
+                            <canvas id="chartSedangDipinjam"></canvas>
+                        </div>
+                        <div class="stat-pill-row">
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $sedang_judul ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#D94D86;"></span>Judul</div>
+                            </div>
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $sedang_eksemplar ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#F3A2C4;"></span>Eksemplar</div>
+                            </div>
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $sedang_anggota ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#5E8A17;"></span>Anggota</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 3. Koleksi Telah Dikembalikan (Rounded Horizontal Bar Chart) -->
+            <div class="col-lg-4">
+                <div class="card chart-stat-card h-100">
+                    <div class="card-header fw-bold py-3 d-flex justify-content-between align-items-center">
+                        <span><i class="bi bi-bar-chart-steps me-2" style="color: var(--grass);"></i>Koleksi Dikembalikan</span>
+                        <span class="badge rounded-pill" style="background-color: var(--grass); color: #FFFFFF;">Selesai</span>
+                    </div>
+                    <div class="card-body d-flex flex-column justify-content-between">
+                        <div class="chart-canvas-wrap">
+                            <canvas id="chartTelahDikembalikan"></canvas>
+                        </div>
+                        <div class="stat-pill-row">
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $kembali_judul ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#5E8A17;"></span>Judul</div>
+                            </div>
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $kembali_eksemplar ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#A6C96A;"></span>Eksemplar</div>
+                            </div>
+                            <div class="stat-pill-item">
+                                <div class="pill-val"><?= $kembali_anggota ?></div>
+                                <div class="pill-lbl"><span class="pill-dot" style="background:#D94D86;"></span>Anggota</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- PINTASAN CEPAT -->
+        <div class="card mb-4">
+            <div class="card-header fw-bold py-3">Pintasan Menu</div>
+            <div class="card-body d-flex flex-wrap gap-2">
+                <a href="../bibliografi/tambah.php" class="btn btn-grass btn-sm"><i class="bi bi-plus-circle me-1"></i> Tambah Katalog Koleksi</a>
+                <a href="../bibliografi/cetak_label.php" class="btn btn-raspberry btn-sm"><i class="bi bi-upc-scan me-1"></i> Cetak Label &amp; Barcode</a>
+                <a href="../anggota/tambah.php" class="btn btn-bubblegum btn-sm"><i class="bi bi-person-plus me-1"></i> Tambah Anggota Baru</a>
+                <a href="../sirkulasi/pinjam.php" class="btn btn-outline-secondary btn-sm" style="border-color: var(--grass); color: var(--text-main);"><i class="bi bi-arrow-left-right me-1"></i> Tambah Pinjam Buku</a>
+            </div>
+        </div>
+
+        <!-- TABEL TRANSAKSI TERAKHIR -->
+<!-- TABEL TRANSAKSI TERAKHIR -->
+        <div class="card">
+            <div class="card-header fw-bold py-3">Transaksi Sirkulasi Terakhir</div>
+            <div class="card-body">
+                <div class="table-responsive">
+                    <table class="table table-bordered table-terbaru align-middle mb-0 small">
+                        <thead>
+                            <tr>
+                                <th>No. Pinjam</th>
+                                <th>Anggota</th>
+                                <th>Koleksi Buku</th>
+                                <th>Tgl Pinjam</th>
+                                <th>Jatuh Tempo</th>
+                                <th class="text-center">Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php if ($q_terbaru && mysqli_num_rows($q_terbaru) > 0): ?>
+                                <?php while($r = mysqli_fetch_assoc($q_terbaru)): ?>
+                                <tr>
+                                    <td class="fw-bold col-nowrap" style="color: var(--grass);"><?= htmlspecialchars($r['no_pinjam']) ?></td>
+                                    <td class="col-nowrap"><?= htmlspecialchars($r['nama_anggota']) ?> <small class="text-muted">(<?= htmlspecialchars($r['kode_anggota']) ?>)</small></td>
+                                    <td class="col-koleksi">
+                                        <div><?= htmlspecialchars($r['judul']) ?></div>
+                                        <small class="text-muted">[<?= htmlspecialchars($r['nomor_barcode']) ?>]</small>
+                                    </td>
+                                    <td class="col-nowrap"><?= htmlspecialchars($r['tgl_pinjam']) ?></td>
+                                    <td class="col-nowrap"><?= htmlspecialchars($r['tgl_jatuh_tempo']) ?></td>
+                                    <td class="col-nowrap text-center">
+                                        <?php if ($r['status'] == 'Dipinjam'): ?>
+                                            <span class="badge" style="background-color: var(--bubblegum); color: #23281E;"><?= htmlspecialchars($r['status']) ?></span>
+                                        <?php else: ?>
+                                            <span class="badge" style="background-color: var(--grass); color: #FFFFFF;"><?= htmlspecialchars($r['status']) ?></span>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                                <?php endwhile; ?>
+                            <?php else: ?>
+                                <tr>
+                                    <td colspan="6" class="text-center text-muted py-3">Belum ada data transaksi sirkulasi.</td>
+                                </tr>
+                            <?php endif; ?>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+
+        <!-- FOOTER HALAMAN ADMIN -->
+        <footer class="mt-5 py-3 text-center text-muted small border-top" style="border-color: var(--border-color) !important;">
+            &copy; <?= date('Y') ?> <strong><?= htmlspecialchars($nama_perpus) ?></strong> &mdash; Backoffice Administrator
+        </footer>
+    </div>
+</div>
+
+<!-- Bootstrap 5 JS Bundle -->
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+<!-- Chart.js -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script>
+    (function () {
+        const htmlEl = document.documentElement;
+        const toggleBtn = document.getElementById('themeToggle');
+        const themeIcon = document.getElementById('themeIcon');
+        const themeLabel = document.getElementById('themeLabel');
+        const storageKey = 'canda_admin_theme';
+
+        let chartTotal, chartDipinjam, chartDikembalikan;
+
+        function getThemeColors(theme) {
+            const isDark = theme === 'dark';
+            return {
+                text: isDark ? '#F6F0E8' : '#23281E',
+                muted: isDark ? '#B6BEA9' : '#646B5E',
+                grid: isDark ? 'rgba(220, 232, 184, 0.12)' : 'rgba(94, 138, 23, 0.12)',
+                border: isDark ? '#1D231A' : '#FFFFFF'
+            };
+        }
+
+        function initCharts(theme) {
+            if (typeof Chart === 'undefined') return;
+            const c = getThemeColors(theme);
+
+            if (chartTotal) chartTotal.destroy();
+            if (chartDipinjam) chartDipinjam.destroy();
+            if (chartDikembalikan) chartDikembalikan.destroy();
+
+            // 1. Polar Area Chart - Statistik Data Peminjaman
+            const ctxTotal = document.getElementById('chartTotalPeminjaman');
+            if (ctxTotal) {
+                chartTotal = new Chart(ctxTotal, {
+                    type: 'polarArea',
+                    data: {
+                        labels: ['Judul', 'Eksemplar', 'Anggota'],
+                        datasets: [{
+                            data: [<?= $pinjam_total_judul ?>, <?= $pinjam_total_eksemplar ?>, <?= $pinjam_total_anggota ?>],
+                            backgroundColor: [
+                                'rgba(217, 77, 134, 0.82)',
+                                'rgba(243, 162, 196, 0.88)',
+                                'rgba(94, 138, 23, 0.82)'
+                            ],
+                            borderColor: c.border,
+                            borderWidth: 2
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            r: {
+                                beginAtZero: true,
+                                ticks: { display: false },
+                                grid: { color: c.grid },
+                                angleLines: { color: c.grid }
+                            }
+                        },
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { color: c.text, boxWidth: 12, font: { size: 11 } }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // 2. Semi-Donut Gauge Chart - Koleksi Sedang Dipinjam - UNTUK UBAH WARNA DIAGRAM
+            const ctxPinjam = document.getElementById('chartSedangDipinjam');
+            if (ctxPinjam) {
+                chartDipinjam = new Chart(ctxPinjam, {
+                    type: 'doughnut',
+                    data: {
+                        labels: ['Judul', 'Eksemplar', 'Anggota'],
+                        datasets: [{
+                            data: [<?= $sedang_judul ?>, <?= $sedang_eksemplar ?>, <?= $sedang_anggota ?>],
+                            backgroundColor: ['#D94D86', '#F3A2C4', '#5E8A17'],
+                            borderColor: c.border,
+                            borderWidth: 2,
+                            hoverOffset: 6
+                        }]
+                    },
+                    options: {
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        rotation: -90,
+                        circumference: 180,
+                        cutout: '62%',
+                        plugins: {
+                            legend: {
+                                position: 'bottom',
+                                labels: { color: c.text, boxWidth: 12, font: { size: 11 } }
+                            }
+                        }
+                    }
+                });
+            }
+
+            // 3. Horizontal Pill Bar Chart - Koleksi Telah Dikembalikan
+            const ctxKembali = document.getElementById('chartTelahDikembalikan');
+            if (ctxKembali) {
+                chartDikembalikan = new Chart(ctxKembali, {
+                    type: 'bar',
+                    data: {
+                        labels: ['Judul', 'Eksemplar', 'Anggota'],
+                        datasets: [{
+                            label: 'Jumlah',
+                            data: [<?= $kembali_judul ?>, <?= $kembali_eksemplar ?>, <?= $kembali_anggota ?>],
+                            backgroundColor: ['#5E8A17', '#DCE8B8', '#D94D86'],
+                            borderColor: ['#466810', '#8FB24B', '#B5376B'],
+                            borderWidth: 1.5,
+                            borderRadius: 999,
+                            borderSkipped: false,
+                            barThickness: 22
+                        }]
+                    },
+                    options: {
+                        indexAxis: 'y',
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        scales: {
+                            x: {
+                                beginAtZero: true,
+                                ticks: { color: c.muted, precision: 0, font: { size: 11 } },
+                                grid: { color: c.grid }
+                            },
+                            y: {
+                                ticks: { color: c.text, font: { size: 11, weight: '600' } },
+                                grid: { display: false }
+                            }
+                        },
+                        plugins: {
+                            legend: { display: false }
+                        }
+                    }
+                });
+            }
+        }
+
+        function applyTheme(theme) {
+            htmlEl.setAttribute('data-theme', theme);
+            localStorage.setItem(storageKey, theme);
+
+            if (theme === 'dark') {
+                themeIcon.className = 'bi bi-sun-fill me-1';
+                themeLabel.textContent = 'Light Mode';
+            } else {
+                themeIcon.className = 'bi bi-moon-stars-fill me-1';
+                themeLabel.textContent = 'Dark Mode';
+            }
+
+            initCharts(theme);
+        }
+
+        // Muat preferensi tersimpan saat halaman dibuka
+        const savedTheme = localStorage.getItem(storageKey) || 'light';
+        applyTheme(savedTheme);
+
+        toggleBtn.addEventListener('click', function () {
+            const current = htmlEl.getAttribute('data-theme');
+            applyTheme(current === 'dark' ? 'light' : 'dark');
+        });
+    })();
+</script>
+</body>
+</html>
